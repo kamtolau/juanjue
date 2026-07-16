@@ -146,6 +146,14 @@ body {
   text-align: center;
 }
 
+.privacy-note {
+  margin: 14px 0 2px;
+  font-size: 12px;
+  color: var(--text-weak);
+  text-align: center;
+  line-height: 1.6;
+}
+
 /* 按钮 */
 .btn {
   display: inline-block;

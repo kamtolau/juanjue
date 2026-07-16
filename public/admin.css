@@ -173,6 +173,29 @@
   word-break: break-all;
 }
 
+.qr-title {
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 8px;
+}
+
+/* 分组小标题（汇总 / 对象管理） */
+.group-heading {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--primary);
+  padding: 10px 2px 6px;
+  border-bottom: 2px solid var(--primary);
+  margin: 6px 0 4px;
+}
+
+/* 提交明细里的问卷类别徽标 */
+.sub-badge.group {
+  background: #eef2ff;
+  color: #4f46e5;
+  margin-right: 6px;
+}
+
 /* 表格 */
 .table-scroll {
   overflow-x: auto;

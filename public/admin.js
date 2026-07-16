@@ -121,9 +121,9 @@
     const badge = $('#statusText');
     badge.textContent = data.surveyOpen ? '开放中' : '已关闭';
     badge.className = 'status-badge ' + (data.surveyOpen ? 'open' : 'closed');
-    $('#statValid').textContent = data.validCount;
+    $('#statLeader').textContent = data.leaderValid;
+    $('#statManager').textContent = data.managerValid;
     $('#statVoided').textContent = data.voidedCount;
-    $('#statManagers').textContent = data.managerCount;
     $('#publicUrlInput').value = data.publicUrl || '';
   }
 
@@ -148,18 +148,26 @@
     if (data.ok) toast('公网地址已保存');
   }
 
-  async function genQrcode() {
+  async function genQrcode(group, label) {
     $('#qrError').textContent = '';
-    const url = $('#publicUrlInput').value.trim();
-    const query = url ? '?url=' + encodeURIComponent(url) : '';
-    const data = await api('/api/admin/qrcode' + query);
+    let base = $('#publicUrlInput').value.trim();
+    if (!base) {
+      $('#qrError').textContent = '请先填写站点根地址';
+      $('#qrBox').classList.add('hidden');
+      return;
+    }
+    base = base.replace(/\/+$/, ''); // 去掉结尾斜杠
+    const url = base + '/' + group;
+    const data = await api('/api/admin/qrcode?url=' + encodeURIComponent(url));
     if (!data.ok) {
       $('#qrError').textContent = data.error || '生成失败';
       $('#qrBox').classList.add('hidden');
       return;
     }
+    $('#qrTitle').textContent = label + '问卷';
     $('#qrImg').src = data.dataUrl;
     $('#qrDownload').href = data.dataUrl;
+    $('#qrDownload').setAttribute('download', label + '测评二维码.png');
     $('#qrUrl').textContent = data.url;
     $('#qrBox').classList.remove('hidden');
   }
@@ -205,17 +213,28 @@
   // ---- 汇总 ----
   async function loadSummary() {
     const data = await api('/api/admin/summary');
-    const body = $('#summaryBody');
-    body.innerHTML = '';
+    const container = $('#summaryContainer');
+    container.innerHTML = '';
     if (!data.ok) return;
-    data.summary.forEach((r) => {
-      const tr = document.createElement('tr');
-      const rankCls = r.rank <= 3 ? `rank-badge rank-${r.rank}` : '';
-      tr.innerHTML =
-        `<td><span class="${rankCls}">${r.rank}</span></td>` +
-        `<td style="text-align:left">${escapeHtml(r.manager)}</td>` +
-        `<td>${r.avg}</td><td>${r.max}</td><td>${r.min}</td><td>${r.count}</td>`;
-      body.appendChild(tr);
+    data.groups.forEach((g) => {
+      const wrap = document.createElement('div');
+      wrap.style.marginTop = '14px';
+      const rows = g.rows
+        .map((r) => {
+          const rankCls = r.rank <= 3 ? `rank-badge rank-${r.rank}` : '';
+          return (
+            `<tr><td><span class="${rankCls}">${r.rank}</span></td>` +
+            `<td style="text-align:left">${escapeHtml(r.manager)}</td>` +
+            `<td>${r.avg}</td><td>${r.max}</td><td>${r.min}</td><td>${r.count}</td></tr>`
+          );
+        })
+        .join('');
+      wrap.innerHTML =
+        `<div class="group-heading">${escapeHtml(g.label)}</div>` +
+        `<div class="table-scroll"><table class="data-table">` +
+        `<thead><tr><th>排名</th><th>测评对象</th><th>平均分</th><th>最高</th><th>最低</th><th>有效人数</th></tr></thead>` +
+        `<tbody>${rows}</tbody></table></div>`;
+      container.appendChild(wrap);
     });
   }
 
@@ -244,7 +263,10 @@
       item.innerHTML =
         `<div class="sub-head">
            <span class="sub-name">${escapeHtml(sub.name)}</span>
-           <span class="sub-badge ${sub.voidedAt ? 'voided' : 'valid'}">${sub.status}</span>
+           <span>
+             <span class="sub-badge group">${escapeHtml(sub.groupLabel || '')}</span>
+             <span class="sub-badge ${sub.voidedAt ? 'voided' : 'valid'}">${sub.status}</span>
+           </span>
          </div>
          <div class="sub-time">提交时间：${fmt(sub.createdAt)}${
           sub.voidedAt ? '　|　作废时间：' + fmt(sub.voidedAt) : ''
@@ -270,12 +292,28 @@
   }
 
   // ---- 对象管理 ----
+  const GROUP_LABELS = { leader: '领导班子', manager: '管理人员' };
+
   async function loadManagers() {
     const data = await api('/api/admin/managers');
     const list = $('#managersList');
     list.innerHTML = '';
     if (!data.ok) return;
-    data.managers.forEach((m, idx) => {
+
+    let lastGroup = null;
+    let idx = 0;
+    data.managers.forEach((m) => {
+      // 分组小标题
+      if (m.group_key !== lastGroup) {
+        lastGroup = m.group_key;
+        idx = 0;
+        const heading = document.createElement('div');
+        heading.className = 'group-heading';
+        heading.textContent = GROUP_LABELS[m.group_key] || m.group_key;
+        list.appendChild(heading);
+      }
+      idx += 1;
+
       const row = document.createElement('div');
       row.className = 'manager-row' + (m.active ? '' : ' inactive');
 
@@ -305,7 +343,7 @@
 
       const index = document.createElement('div');
       index.className = 'm-index';
-      index.textContent = idx + 1;
+      index.textContent = idx;
 
       const toggleBtn = document.createElement('button');
       toggleBtn.className = 'btn btn-sm ' + (m.active ? 'btn-ghost' : 'btn-outline');
@@ -337,6 +375,7 @@
 
   async function addManager() {
     const name = $('#newManagerInput').value.trim();
+    const group = $('#newManagerGroup').value;
     $('#managerError').textContent = '';
     if (!name) {
       $('#managerError').textContent = '请输入测评对象名称';
@@ -344,7 +383,7 @@
     }
     const res = await api('/api/admin/managers', {
       method: 'POST',
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, group }),
     });
     if (res.ok) {
       $('#newManagerInput').value = '';
@@ -383,7 +422,8 @@
   $$('.tab').forEach((t) => t.addEventListener('click', () => switchTab(t.dataset.tab)));
   $('#toggleSurveyBtn').addEventListener('click', toggleSurvey);
   $('#savePublicUrlBtn').addEventListener('click', savePublicUrl);
-  $('#genQrBtn').addEventListener('click', genQrcode);
+  $('#genQrLeaderBtn').addEventListener('click', () => genQrcode('leader', '领导班子'));
+  $('#genQrManagerBtn').addEventListener('click', () => genQrcode('manager', '管理人员'));
   $('#exportBtn').addEventListener('click', doExport);
   $('#clearBtn').addEventListener('click', clearData);
   $('#refreshSummaryBtn').addEventListener('click', loadSummary);

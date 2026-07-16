@@ -6,11 +6,21 @@
   const $ = (sel) => document.querySelector(sel);
 
   const views = {
+    landing: $('#landingView'),
     closed: $('#closedView'),
     name: $('#nameView'),
     eval: $('#evalView'),
     done: $('#doneView'),
   };
+
+  /** 从路径识别问卷类别：/leader → leader，/manager → manager，其余 → null */
+  function detectGroup() {
+    const p = location.pathname.replace(/\/+$/, '');
+    if (p.endsWith('/leader')) return 'leader';
+    if (p.endsWith('/manager')) return 'manager';
+    return null;
+  }
+  const GROUP = detectGroup();
 
   const state = {
     name: '',
@@ -37,7 +47,14 @@
   // 初始化：读取配置
   // -------------------------------------------------------------------------
   async function init() {
-    const cfg = await api('/api/config');
+    // 未指定问卷 → 显示落地选择页
+    if (!GROUP) {
+      $('#pageTitle').textContent = '项目民主测评';
+      document.title = '项目民主测评';
+      show('landing');
+      return;
+    }
+    const cfg = await api('/api/config?group=' + GROUP);
     if (cfg && cfg.title) {
       $('#pageTitle').textContent = cfg.title;
       document.title = cfg.title;
@@ -66,7 +83,7 @@
     const data = await api('/api/check-name', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, group: GROUP }),
     });
     btn.disabled = false;
     btn.textContent = '进入测评';
@@ -228,6 +245,7 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: state.name,
+        group: GROUP,
         scores: collected.map((s) => ({ managerId: s.managerId, score: s.score })),
       }),
     });

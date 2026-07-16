@@ -47,12 +47,14 @@ CREATE TABLE IF NOT EXISTS managers (
   title     TEXT    DEFAULT '',
   sort      INTEGER NOT NULL DEFAULT 0,
   active    INTEGER NOT NULL DEFAULT 1,      -- 1 启用 / 0 停用
+  group_key TEXT    NOT NULL DEFAULT 'leader', -- 问卷类别 leader / manager
   created_at TEXT   NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS submissions (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   name       TEXT    NOT NULL,
+  group_key  TEXT    NOT NULL DEFAULT 'leader', -- 问卷类别 leader / manager
   created_at TEXT    NOT NULL,
   voided_at  TEXT                             -- 为空表示有效提交
 );
@@ -71,6 +73,21 @@ CREATE INDEX IF NOT EXISTS idx_submissions_voided ON submissions(voided_at);
 CREATE INDEX IF NOT EXISTS idx_scores_submission  ON scores(submission_id);
 CREATE INDEX IF NOT EXISTS idx_scores_manager     ON scores(manager_id);
 `);
+
+// ---------------------------------------------------------------------------
+// 迁移：为旧库补充 group_key 列（新库 CREATE 已含该列，此处兼容已有 survey.db）
+// ---------------------------------------------------------------------------
+function ensureColumn(table, column, ddl) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+  }
+}
+ensureColumn('managers', 'group_key', "group_key TEXT NOT NULL DEFAULT 'leader'");
+ensureColumn('submissions', 'group_key', "group_key TEXT NOT NULL DEFAULT 'leader'");
+
+// group_key 列就绪后再建其索引
+db.exec('CREATE INDEX IF NOT EXISTS idx_submissions_group ON submissions(group_key);');
 
 // ---------------------------------------------------------------------------
 // 默认设置
@@ -102,9 +119,11 @@ initSetting('survey_open', '1');   // 1 开放 / 0 关闭
 initSetting('public_url', '');     // 公网测评地址
 
 // ---------------------------------------------------------------------------
-// 内置测评对象名单（仅在 managers 表为空时写入）
+// 内置测评对象名单（分两份问卷）
+//   leader  —— 领导班子，7 人
+//   manager —— 管理人员，13 人
 // ---------------------------------------------------------------------------
-const DEFAULT_MANAGERS = [
+const LEADER_NAMES = [
   '陈振成（项目经理）',
   '解泓立（党支部书记兼总工程师）',
   '储志坚（盾构副经理）',
@@ -112,6 +131,9 @@ const DEFAULT_MANAGERS = [
   '商圣帅（安全总监）',
   '孔杨（总会计师）',
   '孙博（总经济师）',
+];
+
+const MANAGER_NAMES = [
   '程玉鹏（物资部部长）',
   '卢娟（综合办主任）',
   '吕海鹏（实验室主任）',
@@ -129,11 +151,21 @@ const DEFAULT_MANAGERS = [
 
 const managerCount = db.prepare('SELECT COUNT(*) AS n FROM managers').get().n;
 if (managerCount === 0) {
+  // 首次运行：写入内置名单
   const insert = db.prepare(
-    'INSERT INTO managers (name, title, sort, active, created_at) VALUES (?, ?, ?, 1, ?)'
+    'INSERT INTO managers (name, title, sort, active, group_key, created_at) VALUES (?, ?, ?, 1, ?, ?)'
   );
   transaction(() => {
-    DEFAULT_MANAGERS.forEach((name, idx) => insert.run(name, '', idx + 1, nowIso()));
+    let sort = 0;
+    LEADER_NAMES.forEach((name) => insert.run(name, '', ++sort, 'leader', nowIso()));
+    MANAGER_NAMES.forEach((name) => insert.run(name, '', ++sort, 'manager', nowIso()));
+  });
+} else {
+  // 已有库：按姓名把内置名单归位到对应问卷（幂等，兼容旧的 20 人单表）
+  const setGroupByName = db.prepare('UPDATE managers SET group_key = ? WHERE name = ?');
+  transaction(() => {
+    LEADER_NAMES.forEach((name) => setGroupByName.run('leader', name));
+    MANAGER_NAMES.forEach((name) => setGroupByName.run('manager', name));
   });
 }
 

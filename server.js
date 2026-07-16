@@ -46,20 +46,30 @@ function normalizeName(name) {
   return String(name == null ? '' : name).trim().replace(/\s+/g, ' ');
 }
 
-/** 查询某姓名当前是否存在有效（未作废）提交 */
-const findValidSubmissionStmt = db.prepare(
-  'SELECT * FROM submissions WHERE name = ? AND voided_at IS NULL LIMIT 1'
-);
-function findValidSubmission(name) {
-  return findValidSubmissionStmt.get(name);
+/** 问卷类别配置：leader（领导班子）/ manager（管理人员） */
+const GROUPS = {
+  leader: { key: 'leader', label: '领导班子', title: '项目领导班子民主测评' },
+  manager: { key: 'manager', label: '管理人员', title: '项目管理人员民主测评' },
+};
+/** 校验并返回合法 group，非法返回 null */
+function normalizeGroup(g) {
+  return GROUPS[g] ? g : null;
 }
 
-/** 获取全部启用的测评对象（按 sort、id 排序） */
-const activeManagersStmt = db.prepare(
-  'SELECT id, name, title FROM managers WHERE active = 1 ORDER BY sort ASC, id ASC'
+/** 查询某姓名在指定问卷下当前是否存在有效（未作废）提交 */
+const findValidSubmissionStmt = db.prepare(
+  'SELECT * FROM submissions WHERE name = ? AND group_key = ? AND voided_at IS NULL LIMIT 1'
 );
-function getActiveManagers() {
-  return activeManagersStmt.all();
+function findValidSubmission(name, group) {
+  return findValidSubmissionStmt.get(name, group);
+}
+
+/** 获取指定问卷下全部启用的测评对象（按 sort、id 排序） */
+const activeManagersStmt = db.prepare(
+  'SELECT id, name, title FROM managers WHERE active = 1 AND group_key = ? ORDER BY sort ASC, id ASC'
+);
+function getActiveManagers(group) {
+  return activeManagersStmt.all(group);
 }
 
 /** 生成简单管理员会话令牌（内存存储，重启失效） */
@@ -91,45 +101,61 @@ function requireAdmin(req, res, next) {
 const EVAL_REFERENCES = ['团结协作', '专业素养', '执行落实力', '担当作为'];
 
 app.get('/api/config', (req, res) => {
+  const group = normalizeGroup(req.query.group);
+  if (!group) {
+    return res.status(400).json({ ok: false, error: '缺少测评类别' });
+  }
   res.json({
     ok: true,
-    title: '项目领导班子民主测评',
+    group,
+    title: GROUPS[group].title,
+    label: GROUPS[group].label,
     references: EVAL_REFERENCES,
     surveyOpen: getSetting('survey_open', '1') === '1',
   });
 });
 
 /**
- * 姓名核验：判断该姓名能否进入测评
+ * 姓名核验：判断该姓名在指定问卷下能否进入测评
  * 返回 canEnter=true 表示未提交过（可进入）
  */
 app.post('/api/check-name', (req, res) => {
   if (getSetting('survey_open', '1') !== '1') {
     return res.json({ ok: false, canEnter: false, error: '测评已关闭' });
   }
+  const group = normalizeGroup(req.body && req.body.group);
+  if (!group) {
+    return res.json({ ok: false, canEnter: false, error: '缺少测评类别' });
+  }
   const name = normalizeName(req.body && req.body.name);
   if (!name) {
     return res.json({ ok: false, canEnter: false, error: '请输入姓名' });
   }
-  if (findValidSubmission(name)) {
-    return res.json({ ok: false, canEnter: false, error: '该姓名已提交过测评，不可重复填写' });
+  if (findValidSubmission(name, group)) {
+    return res.json({ ok: false, canEnter: false, error: '该姓名已提交过本问卷，不可重复填写' });
   }
   res.json({
     ok: true,
     canEnter: true,
     name,
-    managers: getActiveManagers(),
+    group,
+    managers: getActiveManagers(group),
     references: EVAL_REFERENCES,
   });
 });
 
 /**
  * 提交测评
- * body: { name, scores: [{ managerId, score }] }
+ * body: { name, group, scores: [{ managerId, score }] }
  */
 app.post('/api/submit', (req, res) => {
   if (getSetting('survey_open', '1') !== '1') {
     return res.status(400).json({ ok: false, error: '测评已关闭' });
+  }
+
+  const group = normalizeGroup(req.body && req.body.group);
+  if (!group) {
+    return res.status(400).json({ ok: false, error: '缺少测评类别' });
   }
 
   const name = normalizeName(req.body && req.body.name);
@@ -137,12 +163,12 @@ app.post('/api/submit', (req, res) => {
     return res.status(400).json({ ok: false, error: '请输入姓名' });
   }
 
-  // 姓名唯一性再次校验
-  if (findValidSubmission(name)) {
-    return res.status(400).json({ ok: false, error: '该姓名已提交过测评，不可重复填写' });
+  // 姓名唯一性再次校验（同问卷内）
+  if (findValidSubmission(name, group)) {
+    return res.status(400).json({ ok: false, error: '该姓名已提交过本问卷，不可重复填写' });
   }
 
-  const managers = getActiveManagers();
+  const managers = getActiveManagers(group);
   const managerIds = new Set(managers.map((m) => m.id));
 
   const rawScores = Array.isArray(req.body && req.body.scores) ? req.body.scores : [];
@@ -179,7 +205,7 @@ app.post('/api/submit', (req, res) => {
 
   // 写入（事务）
   const insertSubmission = db.prepare(
-    'INSERT INTO submissions (name, created_at, voided_at) VALUES (?, ?, NULL)'
+    'INSERT INTO submissions (name, group_key, created_at, voided_at) VALUES (?, ?, ?, NULL)'
   );
   const insertScore = db.prepare(
     'INSERT INTO scores (submission_id, manager_id, score) VALUES (?, ?, ?)'
@@ -188,10 +214,10 @@ app.post('/api/submit', (req, res) => {
   try {
     transaction(() => {
       // 事务内二次确认唯一（防并发）
-      if (findValidSubmission(name)) {
+      if (findValidSubmission(name, group)) {
         throw new Error('DUPLICATE');
       }
-      const info = insertSubmission.run(name, nowIso());
+      const info = insertSubmission.run(name, group, nowIso());
       const submissionId = info.lastInsertRowid;
       for (const [mid, score] of scoreByManager.entries()) {
         insertScore.run(submissionId, mid, score);
@@ -199,7 +225,7 @@ app.post('/api/submit', (req, res) => {
     });
   } catch (err) {
     if (err.message === 'DUPLICATE') {
-      return res.status(400).json({ ok: false, error: '该姓名已提交过测评，不可重复填写' });
+      return res.status(400).json({ ok: false, error: '该姓名已提交过本问卷，不可重复填写' });
     }
     console.error('提交失败：', err);
     return res.status(500).json({ ok: false, error: '提交失败，请稍后再试' });
@@ -228,20 +254,22 @@ app.get('/api/admin/verify', requireAdmin, (req, res) => {
 
 /** 概览：开放状态、公网地址、统计数字 */
 app.get('/api/admin/overview', requireAdmin, (req, res) => {
-  const validCount = db
-    .prepare('SELECT COUNT(*) AS n FROM submissions WHERE voided_at IS NULL')
-    .get().n;
+  const validByGroupStmt = db.prepare(
+    "SELECT COUNT(*) AS n FROM submissions WHERE voided_at IS NULL AND group_key = ?"
+  );
+  const leaderValid = validByGroupStmt.get('leader').n;
+  const managerValid = validByGroupStmt.get('manager').n;
   const voidedCount = db
     .prepare('SELECT COUNT(*) AS n FROM submissions WHERE voided_at IS NOT NULL')
     .get().n;
-  const managerCount = db.prepare('SELECT COUNT(*) AS n FROM managers WHERE active = 1').get().n;
   res.json({
     ok: true,
     surveyOpen: getSetting('survey_open', '1') === '1',
     publicUrl: getSetting('public_url', ''),
-    validCount,
+    leaderValid,
+    managerValid,
+    validCount: leaderValid + managerValid,
     voidedCount,
-    managerCount,
   });
 });
 
@@ -279,9 +307,12 @@ app.get('/api/admin/qrcode', requireAdmin, async (req, res) => {
 /** 列出全部测评对象（含停用） */
 app.get('/api/admin/managers', requireAdmin, (req, res) => {
   const rows = db
-    .prepare('SELECT id, name, title, sort, active FROM managers ORDER BY sort ASC, id ASC')
+    .prepare(
+      "SELECT id, name, title, sort, active, group_key FROM managers " +
+        "ORDER BY (group_key = 'leader') DESC, sort ASC, id ASC"
+    )
     .all();
-  res.json({ ok: true, managers: rows });
+  res.json({ ok: true, managers: rows, groups: GROUPS });
 });
 
 /** 新增测评对象 */
@@ -290,10 +321,13 @@ app.post('/api/admin/managers', requireAdmin, (req, res) => {
   if (!name) {
     return res.status(400).json({ ok: false, error: '请输入测评对象名称' });
   }
+  const group = normalizeGroup(req.body && req.body.group) || 'leader';
   const maxSort = db.prepare('SELECT COALESCE(MAX(sort), 0) AS m FROM managers').get().m;
   const info = db
-    .prepare('INSERT INTO managers (name, title, sort, active, created_at) VALUES (?, ?, ?, 1, ?)')
-    .run(name, '', maxSort + 1, nowIso());
+    .prepare(
+      'INSERT INTO managers (name, title, sort, active, group_key, created_at) VALUES (?, ?, ?, 1, ?, ?)'
+    )
+    .run(name, '', maxSort + 1, group, nowIso());
   res.json({ ok: true, id: info.lastInsertRowid });
 });
 
@@ -337,6 +371,8 @@ app.get('/api/admin/submissions', requireAdmin, (req, res) => {
     return {
       id: sub.id,
       name: sub.name,
+      group: sub.group_key,
+      groupLabel: (GROUPS[sub.group_key] || {}).label || sub.group_key,
       createdAt: sub.created_at,
       voidedAt: sub.voided_at,
       status: sub.voided_at ? '已作废' : '有效',
@@ -346,11 +382,11 @@ app.get('/api/admin/submissions', requireAdmin, (req, res) => {
   res.json({ ok: true, submissions: result });
 });
 
-/** 汇总排名（仅统计有效提交） */
-function computeSummary() {
+/** 汇总排名（仅统计有效提交），按指定问卷分组计算、组内排名 */
+function computeSummary(group) {
   const managers = db
-    .prepare('SELECT id, name FROM managers ORDER BY sort ASC, id ASC')
-    .all();
+    .prepare('SELECT id, name FROM managers WHERE group_key = ? ORDER BY sort ASC, id ASC')
+    .all(group);
   const rows = managers.map((m) => {
     const agg = db
       .prepare(
@@ -376,7 +412,13 @@ function computeSummary() {
 }
 
 app.get('/api/admin/summary', requireAdmin, (req, res) => {
-  res.json({ ok: true, summary: computeSummary() });
+  res.json({
+    ok: true,
+    groups: [
+      { key: 'leader', label: GROUPS.leader.label, rows: computeSummary('leader') },
+      { key: 'manager', label: GROUPS.manager.label, rows: computeSummary('manager') },
+    ],
+  });
 });
 
 /** 作废某条提交（记录作废时间，不参与统计，该姓名可重新提交） */
@@ -405,67 +447,73 @@ app.post('/api/admin/clear', requireAdmin, (req, res) => {
 // ---- Excel 导出 ------------------------------------------------------------
 
 app.get('/api/admin/export', requireAdmin, async (req, res) => {
-  const managers = db
-    .prepare('SELECT id, name FROM managers ORDER BY sort ASC, id ASC')
-    .all();
-
-  const subs = db.prepare('SELECT * FROM submissions ORDER BY id ASC').all();
   const scoreStmt = db.prepare('SELECT manager_id, score FROM scores WHERE submission_id = ?');
 
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = '项目领导班子民主测评系统';
+  workbook.creator = '项目民主测评系统';
   workbook.created = new Date();
 
-  // --- Sheet 1：原始明细 ---
-  const detail = workbook.addWorksheet('原始明细');
-  const detailColumns = [
-    { header: '提交ID', key: 'id', width: 10 },
-    { header: '姓名', key: 'name', width: 16 },
-    { header: '状态', key: 'status', width: 10 },
-    { header: '提交时间', key: 'createdAt', width: 22 },
-    { header: '作废时间', key: 'voidedAt', width: 22 },
-  ];
-  managers.forEach((m) => detailColumns.push({ header: m.name, key: `m_${m.id}`, width: 18 }));
-  detail.columns = detailColumns;
+  // 每份问卷各生成「明细」+「汇总」两个 sheet
+  for (const key of ['leader', 'manager']) {
+    const label = GROUPS[key].label;
+    const managers = db
+      .prepare('SELECT id, name FROM managers WHERE group_key = ? ORDER BY sort ASC, id ASC')
+      .all(key);
+    const subs = db
+      .prepare('SELECT * FROM submissions WHERE group_key = ? ORDER BY id ASC')
+      .all(key);
 
-  subs.forEach((sub) => {
-    const scores = scoreStmt.all(sub.id);
-    const scoreMap = new Map(scores.map((s) => [s.manager_id, s.score]));
-    const row = {
-      id: sub.id,
-      name: sub.name,
-      status: sub.voided_at ? '已作废' : '有效',
-      createdAt: formatDateTime(sub.created_at),
-      voidedAt: sub.voided_at ? formatDateTime(sub.voided_at) : '',
-    };
-    managers.forEach((m) => {
-      row[`m_${m.id}`] = scoreMap.has(m.id) ? scoreMap.get(m.id) : '';
-    });
-    detail.addRow(row);
-  });
-  detail.getRow(1).font = { bold: true };
+    // --- 明细 ---
+    const detail = workbook.addWorksheet(`${label}-明细`);
+    const detailColumns = [
+      { header: '提交ID', key: 'id', width: 10 },
+      { header: '姓名', key: 'name', width: 16 },
+      { header: '状态', key: 'status', width: 10 },
+      { header: '提交时间', key: 'createdAt', width: 22 },
+      { header: '作废时间', key: 'voidedAt', width: 22 },
+    ];
+    managers.forEach((m) => detailColumns.push({ header: m.name, key: `m_${m.id}`, width: 18 }));
+    detail.columns = detailColumns;
 
-  // --- Sheet 2：汇总统计 ---
-  const summarySheet = workbook.addWorksheet('汇总统计');
-  summarySheet.columns = [
-    { header: '排名', key: 'rank', width: 8 },
-    { header: '测评对象', key: 'manager', width: 24 },
-    { header: '平均分', key: 'avg', width: 12 },
-    { header: '最高分', key: 'max', width: 12 },
-    { header: '最低分', key: 'min', width: 12 },
-    { header: '有效人数', key: 'count', width: 12 },
-  ];
-  computeSummary().forEach((r) => {
-    summarySheet.addRow({
-      rank: r.rank,
-      manager: r.manager,
-      avg: r.avg,
-      max: r.max,
-      min: r.min,
-      count: r.count,
+    subs.forEach((sub) => {
+      const scores = scoreStmt.all(sub.id);
+      const scoreMap = new Map(scores.map((s) => [s.manager_id, s.score]));
+      const row = {
+        id: sub.id,
+        name: sub.name,
+        status: sub.voided_at ? '已作废' : '有效',
+        createdAt: formatDateTime(sub.created_at),
+        voidedAt: sub.voided_at ? formatDateTime(sub.voided_at) : '',
+      };
+      managers.forEach((m) => {
+        row[`m_${m.id}`] = scoreMap.has(m.id) ? scoreMap.get(m.id) : '';
+      });
+      detail.addRow(row);
     });
-  });
-  summarySheet.getRow(1).font = { bold: true };
+    detail.getRow(1).font = { bold: true };
+
+    // --- 汇总 ---
+    const summarySheet = workbook.addWorksheet(`${label}-汇总`);
+    summarySheet.columns = [
+      { header: '排名', key: 'rank', width: 8 },
+      { header: '测评对象', key: 'manager', width: 24 },
+      { header: '平均分', key: 'avg', width: 12 },
+      { header: '最高分', key: 'max', width: 12 },
+      { header: '最低分', key: 'min', width: 12 },
+      { header: '有效人数', key: 'count', width: 12 },
+    ];
+    computeSummary(key).forEach((r) => {
+      summarySheet.addRow({
+        rank: r.rank,
+        manager: r.manager,
+        avg: r.avg,
+        max: r.max,
+        min: r.min,
+        count: r.count,
+      });
+    });
+    summarySheet.getRow(1).font = { bold: true };
+  }
 
   const filename = `民主测评导出_${formatFileStamp(new Date())}.xlsx`;
   res.setHeader(
@@ -505,14 +553,22 @@ function formatFileStamp(d) {
 app.get('/admin', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
+// 两份问卷入口，均由 index.html 承载，前端按路径识别 group
+app.get('/leader', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+app.get('/manager', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.listen(PORT, () => {
-  console.log(`\n项目领导班子民主测评系统已启动`);
-  console.log(`  测评页：   http://localhost:${PORT}/`);
-  console.log(`  管理后台： http://localhost:${PORT}/admin`);
+  console.log(`\n项目民主测评系统已启动`);
+  console.log(`  领导班子问卷： http://localhost:${PORT}/leader`);
+  console.log(`  管理人员问卷： http://localhost:${PORT}/manager`);
+  console.log(`  管理后台：     http://localhost:${PORT}/admin`);
   console.log(`  管理密码由环境变量 ADMIN_PASSWORD 配置${
     process.env.ADMIN_PASSWORD ? '' : '（当前为默认 admin123，请尽快修改）'
   }\n`);

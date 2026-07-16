@@ -43,22 +43,24 @@
           <button id="toggleSurveyBtn" class="btn btn-primary btn-sm">切换</button>
         </div>
         <div class="stat-grid">
-          <div class="stat"><div class="stat-num" id="statValid">0</div><div class="stat-label">有效提交</div></div>
+          <div class="stat"><div class="stat-num" id="statLeader">0</div><div class="stat-label">领导班子有效</div></div>
+          <div class="stat"><div class="stat-num" id="statManager">0</div><div class="stat-label">管理人员有效</div></div>
           <div class="stat"><div class="stat-num" id="statVoided">0</div><div class="stat-label">已作废</div></div>
-          <div class="stat"><div class="stat-num" id="statManagers">0</div><div class="stat-label">测评对象</div></div>
         </div>
       </div>
 
       <div class="card">
         <h2 class="section-title">公网地址与二维码</h2>
-        <p class="hint">填写用户扫码后访问的公网测评地址（如 https://your-domain.com/）。</p>
-        <input id="publicUrlInput" class="text-input" type="text" placeholder="https://your-domain.com/" />
+        <p class="hint">填写站点根地址（如 http://8.215.90.163:3000 或 https://your-domain.com），下方按问卷分别生成二维码。</p>
+        <input id="publicUrlInput" class="text-input" type="text" placeholder="http://8.215.90.163:3000" />
         <div class="btn-group">
           <button id="savePublicUrlBtn" class="btn btn-primary btn-sm">保存地址</button>
-          <button id="genQrBtn" class="btn btn-outline btn-sm">生成二维码</button>
+          <button id="genQrLeaderBtn" class="btn btn-outline btn-sm">领导班子二维码</button>
+          <button id="genQrManagerBtn" class="btn btn-outline btn-sm">管理人员二维码</button>
         </div>
         <div id="qrError" class="error-line"></div>
         <div id="qrBox" class="qr-box hidden">
+          <div id="qrTitle" class="qr-title"></div>
           <img id="qrImg" alt="测评二维码" />
           <div class="qr-url" id="qrUrl"></div>
           <a id="qrDownload" class="btn btn-outline btn-sm" download="测评二维码.png">下载二维码</a>
@@ -81,15 +83,8 @@
           <h2 class="section-title" style="margin:0">汇总排名</h2>
           <button id="refreshSummaryBtn" class="btn btn-ghost btn-sm">刷新</button>
         </div>
-        <p class="hint">仅统计有效提交，按平均分排名。</p>
-        <div class="table-scroll">
-          <table class="data-table">
-            <thead>
-              <tr><th>排名</th><th>测评对象</th><th>平均分</th><th>最高</th><th>最低</th><th>有效人数</th></tr>
-            </thead>
-            <tbody id="summaryBody"></tbody>
-          </table>
-        </div>
+        <p class="hint">仅统计有效提交，两份问卷分别按平均分组内排名。</p>
+        <div id="summaryContainer"></div>
       </div>
     </section>
 
@@ -109,6 +104,10 @@
       <div class="card">
         <h2 class="section-title">新增测评对象</h2>
         <div class="inline-form">
+          <select id="newManagerGroup" class="text-input" style="max-width:140px;flex:0 0 auto;">
+            <option value="leader">领导班子</option>
+            <option value="manager">管理人员</option>
+          </select>
           <input id="newManagerInput" class="text-input" type="text" placeholder="测评对象名称，如 张三（职务）" />
           <button id="addManagerBtn" class="btn btn-primary btn-sm">新增</button>
         </div>

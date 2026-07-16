@@ -12,6 +12,14 @@
       <h1 id="pageTitle">项目领导班子民主测评</h1>
     </header>
 
+    <!-- 落地页：未指定问卷时的入口选择 -->
+    <section id="landingView" class="card hidden">
+      <h2 class="section-title">请选择要填写的问卷</h2>
+      <p class="hint">两份问卷相互独立，可分别填写各提交一次。</p>
+      <a href="/leader" class="btn btn-primary btn-block btn-lg" style="text-decoration:none;margin-bottom:10px;">领导班子民主测评</a>
+      <a href="/manager" class="btn btn-outline btn-block btn-lg" style="text-decoration:none;">管理人员民主测评</a>
+    </section>
+
     <!-- 状态：测评已关闭 -->
     <section id="closedView" class="card hidden">
       <div class="notice">测评暂未开放，请稍后再试。</div>
@@ -20,10 +28,11 @@
     <!-- 阶段一：输入姓名 -->
     <section id="nameView" class="card hidden">
       <h2 class="section-title">请输入您的姓名</h2>
-      <p class="hint">填写前请先核验姓名，同一姓名仅可提交一次。</p>
+      <p class="hint">填写前请先核验姓名，同一姓名本问卷仅可提交一次。</p>
       <input id="nameInput" class="text-input" type="text" placeholder="请输入真实姓名" autocomplete="off" />
       <div id="nameError" class="error-line"></div>
       <button id="enterBtn" class="btn btn-primary btn-block">进入测评</button>
+      <p class="privacy-note">填写的姓名仅用于校验是否为公司员工，不会泄露您的个人评分信息。</p>
     </section>
 
     <!-- 阶段二：测评打分 -->
