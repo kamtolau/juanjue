@@ -1,0 +1,19 @@
+{
+  "name": "leadership-democratic-evaluation",
+  "version": "1.0.0",
+  "description": "项目领导班子民主测评系统",
+  "type": "commonjs",
+  "main": "server.js",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "express": "^4.21.2",
+    "qrcode": "^1.5.4"
+  }
+}

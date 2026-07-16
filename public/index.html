@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>项目领导班子民主测评</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="page-header">
+      <h1 id="pageTitle">项目领导班子民主测评</h1>
+    </header>
+
+    <!-- 状态：测评已关闭 -->
+    <section id="closedView" class="card hidden">
+      <div class="notice">测评暂未开放，请稍后再试。</div>
+    </section>
+
+    <!-- 阶段一：输入姓名 -->
+    <section id="nameView" class="card hidden">
+      <h2 class="section-title">请输入您的姓名</h2>
+      <p class="hint">填写前请先核验姓名，同一姓名仅可提交一次。</p>
+      <input id="nameInput" class="text-input" type="text" placeholder="请输入真实姓名" autocomplete="off" />
+      <div id="nameError" class="error-line"></div>
+      <button id="enterBtn" class="btn btn-primary btn-block">进入测评</button>
+    </section>
+
+    <!-- 阶段二：测评打分 -->
+    <section id="evalView" class="hidden">
+      <!-- 测评参考 -->
+      <div class="card reference-card">
+        <h2 class="section-title">测评参考</h2>
+        <ul class="reference-list" id="referenceList"></ul>
+        <p class="hint">
+          请通过滑块为每位测评对象打 0-100 分。<strong>每个分数在本次测评中只能使用一次。</strong>
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="eval-meta">测评人：<span id="evalName"></span></div>
+        <div id="managerList" class="manager-list"></div>
+      </div>
+
+      <div id="submitError" class="error-line center"></div>
+      <button id="submitBtn" class="btn btn-primary btn-block btn-lg">提交测评</button>
+    </section>
+
+    <!-- 阶段三：提交成功 -->
+    <section id="doneView" class="card hidden">
+      <div class="done-icon">✓</div>
+      <h2 class="done-title">提交成功</h2>
+      <p class="done-text" id="doneText">感谢您的参与！</p>
+    </section>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

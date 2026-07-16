@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>测评管理后台</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/admin.css" />
+</head>
+<body>
+  <!-- 登录 -->
+  <div id="loginView" class="login-wrap">
+    <div class="card login-card">
+      <h1 class="login-title">测评管理后台</h1>
+      <input id="pwdInput" class="text-input" type="password" placeholder="请输入管理员密码" />
+      <div id="loginError" class="error-line"></div>
+      <button id="loginBtn" class="btn btn-primary btn-block">登录</button>
+    </div>
+  </div>
+
+  <!-- 主界面 -->
+  <div id="mainView" class="admin-wrap hidden">
+    <header class="admin-header">
+      <h1>测评管理后台</h1>
+      <button id="logoutBtn" class="btn btn-ghost btn-sm">退出登录</button>
+    </header>
+
+    <nav class="tabs">
+      <button class="tab active" data-tab="control">测评控制</button>
+      <button class="tab" data-tab="summary">汇总排名</button>
+      <button class="tab" data-tab="submissions">提交明细</button>
+      <button class="tab" data-tab="managers">对象管理</button>
+    </nav>
+
+    <!-- 测评控制 -->
+    <section id="tab-control" class="tab-panel">
+      <div class="card">
+        <h2 class="section-title">测评状态</h2>
+        <div class="row-between">
+          <div>
+            当前状态：<span id="statusText" class="status-badge">—</span>
+          </div>
+          <button id="toggleSurveyBtn" class="btn btn-primary btn-sm">切换</button>
+        </div>
+        <div class="stat-grid">
+          <div class="stat"><div class="stat-num" id="statValid">0</div><div class="stat-label">有效提交</div></div>
+          <div class="stat"><div class="stat-num" id="statVoided">0</div><div class="stat-label">已作废</div></div>
+          <div class="stat"><div class="stat-num" id="statManagers">0</div><div class="stat-label">测评对象</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 class="section-title">公网地址与二维码</h2>
+        <p class="hint">填写用户扫码后访问的公网测评地址（如 https://your-domain.com/）。</p>
+        <input id="publicUrlInput" class="text-input" type="text" placeholder="https://your-domain.com/" />
+        <div class="btn-group">
+          <button id="savePublicUrlBtn" class="btn btn-primary btn-sm">保存地址</button>
+          <button id="genQrBtn" class="btn btn-outline btn-sm">生成二维码</button>
+        </div>
+        <div id="qrError" class="error-line"></div>
+        <div id="qrBox" class="qr-box hidden">
+          <img id="qrImg" alt="测评二维码" />
+          <div class="qr-url" id="qrUrl"></div>
+          <a id="qrDownload" class="btn btn-outline btn-sm" download="测评二维码.png">下载二维码</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 class="section-title">数据操作</h2>
+        <div class="btn-group">
+          <a id="exportBtn" class="btn btn-primary btn-sm">导出 Excel</a>
+          <button id="clearBtn" class="btn btn-danger btn-sm">清空提交数据</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 汇总排名 -->
+    <section id="tab-summary" class="tab-panel hidden">
+      <div class="card">
+        <div class="row-between">
+          <h2 class="section-title" style="margin:0">汇总排名</h2>
+          <button id="refreshSummaryBtn" class="btn btn-ghost btn-sm">刷新</button>
+        </div>
+        <p class="hint">仅统计有效提交，按平均分排名。</p>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr><th>排名</th><th>测评对象</th><th>平均分</th><th>最高</th><th>最低</th><th>有效人数</th></tr>
+            </thead>
+            <tbody id="summaryBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 提交明细 -->
+    <section id="tab-submissions" class="tab-panel hidden">
+      <div class="card">
+        <div class="row-between">
+          <h2 class="section-title" style="margin:0">提交明细</h2>
+          <button id="refreshSubsBtn" class="btn btn-ghost btn-sm">刷新</button>
+        </div>
+        <div id="subsList" class="subs-list"></div>
+      </div>
+    </section>
+
+    <!-- 对象管理 -->
+    <section id="tab-managers" class="tab-panel hidden">
+      <div class="card">
+        <h2 class="section-title">新增测评对象</h2>
+        <div class="inline-form">
+          <input id="newManagerInput" class="text-input" type="text" placeholder="测评对象名称，如 张三（职务）" />
+          <button id="addManagerBtn" class="btn btn-primary btn-sm">新增</button>
+        </div>
+        <div id="managerError" class="error-line"></div>
+      </div>
+      <div class="card">
+        <div class="row-between">
+          <h2 class="section-title" style="margin:0">测评对象列表</h2>
+          <button id="refreshManagersBtn" class="btn btn-ghost btn-sm">刷新</button>
+        </div>
+        <div id="managersList" class="managers-list"></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- 通用确认弹窗 -->
+  <div id="modal" class="modal-mask hidden">
+    <div class="modal-box">
+      <div id="modalText" class="modal-text"></div>
+      <div class="modal-actions">
+        <button id="modalCancel" class="btn btn-ghost btn-sm">取消</button>
+        <button id="modalOk" class="btn btn-danger btn-sm">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/admin.js"></script>
+</body>
+</html>
