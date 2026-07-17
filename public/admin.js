@@ -225,14 +225,18 @@
           return (
             `<tr><td><span class="${rankCls}">${r.rank}</span></td>` +
             `<td style="text-align:left">${escapeHtml(r.manager)}</td>` +
-            `<td>${r.avg}</td><td>${r.max}</td><td>${r.min}</td><td>${r.count}</td></tr>`
+            `<td>${r.avg}</td>` +
+            `<td>${r.d1}</td><td>${r.d2}</td><td>${r.d3}</td><td>${r.d4}</td>` +
+            `<td>${r.max}</td><td>${r.min}</td><td>${r.count}</td></tr>`
           );
         })
         .join('');
       wrap.innerHTML =
         `<div class="group-heading">${escapeHtml(g.label)}</div>` +
         `<div class="table-scroll"><table class="data-table">` +
-        `<thead><tr><th>排名</th><th>测评对象</th><th>平均分</th><th>最高</th><th>最低</th><th>有效人数</th></tr></thead>` +
+        `<thead><tr><th>排名</th><th>测评对象</th><th>平均总分</th>` +
+        `<th>团结协作</th><th>专业素养</th><th>执行落实力</th><th>担当作为</th>` +
+        `<th>最高</th><th>最低</th><th>有效人数</th></tr></thead>` +
         `<tbody>${rows}</tbody></table></div>`;
       container.appendChild(wrap);
     });
@@ -253,7 +257,22 @@
       item.className = 'sub-item' + (sub.voidedAt ? ' voided' : '');
 
       const chips = sub.scores
-        .map((s) => `<span class="score-chip">${escapeHtml(s.manager_name)} <b>${s.score}</b></span>`)
+        .map((s) => {
+          const dims = [
+            ['团结', s.d1],
+            ['专业', s.d2],
+            ['执行', s.d3],
+            ['担当', s.d4],
+          ]
+            .filter(([, v]) => v != null)
+            .map(([label, v]) => `${label}${v}`)
+            .join(' / ');
+          const detail = dims ? `<span class="score-dims">${escapeHtml(dims)}</span>` : '';
+          return (
+            `<span class="score-chip">${escapeHtml(s.manager_name)} ` +
+            `<b>${s.score}</b>${detail}</span>`
+          );
+        })
         .join('');
 
       const voidBtn = sub.voidedAt

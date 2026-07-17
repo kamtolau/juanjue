@@ -296,6 +296,11 @@
   color: var(--primary);
 }
 
+.score-dims {
+  color: var(--text-weak);
+  margin-left: 4px;
+}
+
 .sub-actions {
   margin-top: 10px;
   text-align: right;

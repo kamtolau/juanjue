@@ -25,6 +25,7 @@
   const state = {
     name: '',
     managers: [],
+    dimensions: [],
   };
 
   function show(view) {
@@ -95,24 +96,33 @@
 
     state.name = data.name;
     state.managers = data.managers || [];
-    renderReferences(data.references || []);
+    state.dimensions = data.dimensions || [];
+    renderDimensions(state.dimensions);
     renderEval();
     show('eval');
     window.scrollTo(0, 0);
   }
 
-  function renderReferences(refs) {
-    const ul = $('#referenceList');
-    ul.innerHTML = '';
-    refs.forEach((r) => {
+  function renderDimensions(dims) {
+    const ol = $('#dimensionList');
+    ol.innerHTML = '';
+    dims.forEach((d) => {
       const li = document.createElement('li');
-      li.textContent = r;
-      ul.appendChild(li);
+      li.className = 'dimension-item';
+      const name = document.createElement('div');
+      name.className = 'dimension-name';
+      name.textContent = d.name;
+      const desc = document.createElement('div');
+      desc.className = 'dimension-desc';
+      desc.textContent = d.desc || '';
+      li.appendChild(name);
+      li.appendChild(desc);
+      ol.appendChild(li);
     });
   }
 
   // -------------------------------------------------------------------------
-  // 阶段二：渲染打分列表
+  // 阶段二：渲染打分列表（每位对象 4 个维度分）
   // -------------------------------------------------------------------------
   function renderEval() {
     $('#evalName').textContent = state.name;
@@ -131,72 +141,141 @@
       nameEl.className = 'manager-name';
       nameEl.textContent = m.name;
 
-      const scoreEl = document.createElement('div');
-      scoreEl.className = 'manager-score';
-      scoreEl.textContent = '未评分';
+      const totalEl = document.createElement('div');
+      totalEl.className = 'manager-score manager-total';
+      totalEl.textContent = '总分 —';
 
       head.appendChild(nameEl);
-      head.appendChild(scoreEl);
-
-      const slider = document.createElement('input');
-      slider.type = 'range';
-      slider.className = 'slider';
-      slider.min = '0';
-      slider.max = '100';
-      slider.step = '1';
-      slider.value = '50';
-      // 使用 dataset.scored 标记是否已经交互过
-      slider.dataset.scored = '0';
-
-      const onInput = () => {
-        slider.dataset.scored = '1';
-        item.classList.remove('unscored', 'highlight');
-        item.classList.add('scored');
-        scoreEl.textContent = slider.value + ' 分';
-        refreshDuplicateHint();
-      };
-      slider.addEventListener('input', onInput);
-      slider.addEventListener('change', onInput);
-
+      head.appendChild(totalEl);
       item.appendChild(head);
-      item.appendChild(slider);
+
+      // 4 个维度滑块
+      const dimsWrap = document.createElement('div');
+      dimsWrap.className = 'dims-wrap';
+
+      state.dimensions.forEach((d) => {
+        const dimRow = document.createElement('div');
+        dimRow.className = 'dim-row';
+        dimRow.dataset.dimKey = d.key;
+
+        const dimHead = document.createElement('div');
+        dimHead.className = 'dim-head';
+
+        const dimName = document.createElement('span');
+        dimName.className = 'dim-name';
+        dimName.textContent = d.name;
+
+        const dimScore = document.createElement('span');
+        dimScore.className = 'dim-score';
+        dimScore.textContent = '未评分';
+
+        dimHead.appendChild(dimName);
+        dimHead.appendChild(dimScore);
+
+        const slider = document.createElement('input');
+        slider.type = 'range';
+        slider.className = 'slider';
+        slider.min = '0';
+        slider.max = '100';
+        slider.step = '1';
+        slider.value = '50';
+        slider.dataset.scored = '0';
+
+        const onInput = () => {
+          slider.dataset.scored = '1';
+          item.classList.remove('unscored', 'highlight');
+          refreshManager(item);
+          refreshTotals();
+        };
+        slider.addEventListener('input', onInput);
+        slider.addEventListener('change', onInput);
+
+        dimRow.appendChild(dimHead);
+        dimRow.appendChild(slider);
+        dimsWrap.appendChild(dimRow);
+      });
+
+      item.appendChild(dimsWrap);
       list.appendChild(item);
     });
   }
 
-  /** 收集当前评分（仅已交互过的） */
-  function collectScores() {
-    const result = [];
-    document.querySelectorAll('.manager-item').forEach((item) => {
-      const slider = item.querySelector('.slider');
+  /** 读取某位对象的 4 个维度分；未交互的维度值为 null */
+  function readManager(item) {
+    const dims = {};
+    let allScored = true;
+    item.querySelectorAll('.dim-row').forEach((row) => {
+      const slider = row.querySelector('.slider');
       const scored = slider.dataset.scored === '1';
-      result.push({
-        managerId: Number(item.dataset.managerId),
-        score: scored ? Number(slider.value) : null,
-        scored,
-        item,
-      });
+      if (!scored) allScored = false;
+      dims[row.dataset.dimKey] = scored ? Number(slider.value) : null;
     });
-    return result;
+    const vals = Object.values(dims);
+    const total = allScored ? vals.reduce((a, b) => a + b, 0) : null;
+    return { managerId: Number(item.dataset.managerId), dims, total, allScored, item };
   }
 
-  /** 实时高亮重复分数 */
-  function refreshDuplicateHint() {
-    const scores = collectScores().filter((s) => s.scored);
+  /** 刷新单个对象：维度分显示、维度内重复高亮、卡片评分态、总分 */
+  function refreshManager(item) {
+    const rows = Array.from(item.querySelectorAll('.dim-row'));
+    const scoredVals = [];
+    rows.forEach((row) => {
+      const slider = row.querySelector('.slider');
+      if (slider.dataset.scored === '1') scoredVals.push(Number(slider.value));
+    });
     const counts = new Map();
-    scores.forEach((s) => counts.set(s.score, (counts.get(s.score) || 0) + 1));
+    scoredVals.forEach((v) => counts.set(v, (counts.get(v) || 0) + 1));
 
-    document.querySelectorAll('.manager-item').forEach((item) => {
-      const slider = item.querySelector('.slider');
-      const scoreEl = item.querySelector('.manager-score');
-      if (slider.dataset.scored !== '1') return;
+    let anyScored = false;
+    rows.forEach((row) => {
+      const slider = row.querySelector('.slider');
+      const dimScore = row.querySelector('.dim-score');
+      if (slider.dataset.scored !== '1') {
+        dimScore.textContent = '未评分';
+        row.classList.remove('duplicate');
+        return;
+      }
+      anyScored = true;
       const val = Number(slider.value);
       if (counts.get(val) > 1) {
-        item.classList.add('duplicate');
-        scoreEl.textContent = val + ' 分（重复）';
+        row.classList.add('duplicate');
+        dimScore.textContent = val + ' 分（重复）';
       } else {
-        item.classList.remove('duplicate');
-        scoreEl.textContent = val + ' 分';
+        row.classList.remove('duplicate');
+        dimScore.textContent = val + ' 分';
+      }
+    });
+
+    item.classList.toggle('scored', anyScored);
+    item.classList.toggle('unscored', !anyScored);
+  }
+
+  /** 刷新所有对象的总分显示，并高亮跨对象重复的总分 */
+  function refreshTotals() {
+    const items = Array.from(document.querySelectorAll('.manager-item'));
+    const totals = [];
+    items.forEach((item) => {
+      const info = readManager(item);
+      totals.push(info.allScored ? info.total : null);
+    });
+    const counts = new Map();
+    totals.forEach((t) => {
+      if (t != null) counts.set(t, (counts.get(t) || 0) + 1);
+    });
+    items.forEach((item, i) => {
+      const totalEl = item.querySelector('.manager-total');
+      const t = totals[i];
+      if (t == null) {
+        totalEl.textContent = '总分 —';
+        item.classList.remove('total-dup');
+        return;
+      }
+      if (counts.get(t) > 1) {
+        totalEl.textContent = '总分 ' + t + '（重复）';
+        item.classList.add('total-dup');
+      } else {
+        totalEl.textContent = '总分 ' + t;
+        item.classList.remove('total-dup');
       }
     });
   }
@@ -206,37 +285,51 @@
   // -------------------------------------------------------------------------
   async function handleSubmit() {
     $('#submitError').textContent = '';
-    const collected = collectScores();
+    const items = Array.from(document.querySelectorAll('.manager-item'));
+    const collected = items.map((item) => readManager(item));
 
-    // 1. 未评分校验：滚动到第一个未评分并高亮
-    const firstUnscored = collected.find((s) => !s.scored);
-    if (firstUnscored) {
-      document.querySelectorAll('.manager-item').forEach((i) => i.classList.remove('highlight'));
-      firstUnscored.item.classList.add('highlight');
-      firstUnscored.item.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      $('#submitError').textContent = '请为所有测评对象评分（已定位到未评分对象）';
+    const focusOn = (item, msg) => {
+      items.forEach((i) => i.classList.remove('highlight'));
+      item.classList.add('highlight');
+      item.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      $('#submitError').textContent = msg;
+    };
+
+    // 1. 完整性：每位对象的 4 个维度都必须评分
+    const incomplete = collected.find((c) => !c.allScored);
+    if (incomplete) {
+      focusOn(incomplete.item, '请为每位对象的 4 个维度都评分（已定位到未完成对象）');
       return;
     }
 
-    // 2. 重复分数校验
+    // 2. 单人 4 个维度分不能重复
+    const dimDup = collected.find((c) => {
+      const vals = Object.values(c.dims);
+      return new Set(vals).size !== vals.length;
+    });
+    if (dimDup) {
+      refreshManager(dimDup.item);
+      focusOn(dimDup.item, '同一对象的 4 个维度分不能重复');
+      return;
+    }
+
+    // 3. 所有对象的总分不能重复
     const seen = new Set();
-    let dup = null;
-    for (const s of collected) {
-      if (seen.has(s.score)) {
-        dup = s;
+    let totalDup = null;
+    for (const c of collected) {
+      if (seen.has(c.total)) {
+        totalDup = c;
         break;
       }
-      seen.add(s.score);
+      seen.add(c.total);
     }
-    if (dup) {
-      refreshDuplicateHint();
-      dup.item.classList.add('highlight');
-      dup.item.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      $('#submitError').textContent = '存在重复分数，每个分数只能使用一次';
+    if (totalDup) {
+      refreshTotals();
+      focusOn(totalDup.item, '存在重复总分，每位对象的总分（4 项之和）不能重复');
       return;
     }
 
-    // 3. 提交后端
+    // 4. 提交后端
     const btn = $('#submitBtn');
     btn.disabled = true;
     btn.textContent = '提交中…';
@@ -246,7 +339,7 @@
       body: JSON.stringify({
         name: state.name,
         group: GROUP,
-        scores: collected.map((s) => ({ managerId: s.managerId, score: s.score })),
+        scores: collected.map((c) => ({ managerId: c.managerId, ...c.dims })),
       }),
     });
     btn.disabled = false;

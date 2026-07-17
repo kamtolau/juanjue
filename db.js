@@ -63,7 +63,11 @@ CREATE TABLE IF NOT EXISTS scores (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   submission_id INTEGER NOT NULL,
   manager_id    INTEGER NOT NULL,
-  score         INTEGER NOT NULL,
+  score         INTEGER NOT NULL,              -- 四个维度分之和（总分）
+  d1            INTEGER,                        -- 团结协作
+  d2            INTEGER,                        -- 专业素养
+  d3            INTEGER,                        -- 执行落实力
+  d4            INTEGER,                        -- 担当作为
   FOREIGN KEY (submission_id) REFERENCES submissions(id) ON DELETE CASCADE,
   FOREIGN KEY (manager_id)    REFERENCES managers(id)
 );
@@ -85,6 +89,11 @@ function ensureColumn(table, column, ddl) {
 }
 ensureColumn('managers', 'group_key', "group_key TEXT NOT NULL DEFAULT 'leader'");
 ensureColumn('submissions', 'group_key', "group_key TEXT NOT NULL DEFAULT 'leader'");
+// 四个维度分（团结协作 / 专业素养 / 执行落实力 / 担当作为），旧库补列
+ensureColumn('scores', 'd1', 'd1 INTEGER');
+ensureColumn('scores', 'd2', 'd2 INTEGER');
+ensureColumn('scores', 'd3', 'd3 INTEGER');
+ensureColumn('scores', 'd4', 'd4 INTEGER');
 
 // group_key 列就绪后再建其索引
 db.exec('CREATE INDEX IF NOT EXISTS idx_submissions_group ON submissions(group_key);');

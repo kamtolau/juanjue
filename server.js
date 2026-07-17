@@ -100,6 +100,35 @@ function requireAdmin(req, res, next) {
 /** 测评配置：开放状态 + 参考项 */
 const EVAL_REFERENCES = ['团结协作', '专业素养', '执行落实力', '担当作为'];
 
+/**
+ * 四个评分维度：每个维度 0-100 分。
+ *   - 单人的 4 个维度分不能重复
+ *   - 所有人的「总分」（4 个维度之和）不能重复
+ */
+const EVAL_DIMENSIONS = [
+  {
+    key: 'd1',
+    name: '团结协作',
+    desc: '领导班子成员是否能够在共同目标指引下，坚持民主集中制原则，相互信任、相互支持、密切配合，形成整体合力推动项目发展。',
+  },
+  {
+    key: 'd2',
+    name: '专业素养',
+    desc: '领导班子成员深耕各专业条线，业务功底扎实，具备统筹施工、安全、协调等综合专业素养，精准把控项目各类风险。',
+  },
+  {
+    key: 'd3',
+    name: '执行落实力',
+    desc: '对上级各项工作安排、项目既定计划紧盯不放，全程跟踪督办，闭环管控全过程，整体执行落实高效有力。',
+  },
+  {
+    key: 'd4',
+    name: '担当作为',
+    desc: '面对工期压力、现场难题、突发状况主动扛责，不推诿、不回避，主动攻坚破难，以实干担当汇聚整体合力，推动项目建设稳步推进。',
+  },
+];
+const DIMENSION_KEYS = EVAL_DIMENSIONS.map((d) => d.key);
+
 app.get('/api/config', (req, res) => {
   const group = normalizeGroup(req.query.group);
   if (!group) {
@@ -111,6 +140,7 @@ app.get('/api/config', (req, res) => {
     title: GROUPS[group].title,
     label: GROUPS[group].label,
     references: EVAL_REFERENCES,
+    dimensions: EVAL_DIMENSIONS,
     surveyOpen: getSetting('survey_open', '1') === '1',
   });
 });
@@ -141,6 +171,7 @@ app.post('/api/check-name', (req, res) => {
     group,
     managers: getActiveManagers(group),
     references: EVAL_REFERENCES,
+    dimensions: EVAL_DIMENSIONS,
   });
 });
 
@@ -173,18 +204,35 @@ app.post('/api/submit', (req, res) => {
 
   const rawScores = Array.isArray(req.body && req.body.scores) ? req.body.scores : [];
 
-  // 归一化并做完整性 / 范围 / 唯一性校验
+  // 归一化并做完整性 / 范围 / 维度唯一性校验
+  // 每个 manager 记录：{ dims: {d1,d2,d3,d4}, total }
   const scoreByManager = new Map();
   for (const item of rawScores) {
     const mid = Number(item && item.managerId);
-    const score = Number(item && item.score);
     if (!managerIds.has(mid)) {
       return res.status(400).json({ ok: false, error: '存在无效的测评对象' });
     }
-    if (!Number.isInteger(score) || score < 0 || score > 100) {
-      return res.status(400).json({ ok: false, error: '分数必须为 0-100 的整数' });
+
+    const dims = {};
+    const dimVals = [];
+    for (const key of DIMENSION_KEYS) {
+      const v = Number(item && item[key]);
+      if (!Number.isInteger(v) || v < 0 || v > 100) {
+        return res.status(400).json({ ok: false, error: '每个维度分必须为 0-100 的整数' });
+      }
+      dims[key] = v;
+      dimVals.push(v);
     }
-    scoreByManager.set(mid, score);
+
+    // 单人 4 个维度分不可重复
+    if (new Set(dimVals).size !== dimVals.length) {
+      return res
+        .status(400)
+        .json({ ok: false, error: '同一测评对象的 4 个维度分不能重复' });
+    }
+
+    const total = dimVals.reduce((a, b) => a + b, 0);
+    scoreByManager.set(mid, { dims, total });
   }
 
   // 完整性：每个启用对象都必须打分
@@ -194,13 +242,15 @@ app.post('/api/submit', (req, res) => {
     }
   }
 
-  // 唯一性：分数不可重复
-  const usedScores = new Set();
-  for (const score of scoreByManager.values()) {
-    if (usedScores.has(score)) {
-      return res.status(400).json({ ok: false, error: '每个分数只能使用一次，存在重复分数' });
+  // 唯一性：所有人的总分不可重复
+  const usedTotals = new Set();
+  for (const { total } of scoreByManager.values()) {
+    if (usedTotals.has(total)) {
+      return res
+        .status(400)
+        .json({ ok: false, error: '每位测评对象的总分不能重复，存在重复总分' });
     }
-    usedScores.add(score);
+    usedTotals.add(total);
   }
 
   // 写入（事务）
@@ -208,7 +258,7 @@ app.post('/api/submit', (req, res) => {
     'INSERT INTO submissions (name, group_key, created_at, voided_at) VALUES (?, ?, ?, NULL)'
   );
   const insertScore = db.prepare(
-    'INSERT INTO scores (submission_id, manager_id, score) VALUES (?, ?, ?)'
+    'INSERT INTO scores (submission_id, manager_id, score, d1, d2, d3, d4) VALUES (?, ?, ?, ?, ?, ?, ?)'
   );
 
   try {
@@ -219,8 +269,8 @@ app.post('/api/submit', (req, res) => {
       }
       const info = insertSubmission.run(name, group, nowIso());
       const submissionId = info.lastInsertRowid;
-      for (const [mid, score] of scoreByManager.entries()) {
-        insertScore.run(submissionId, mid, score);
+      for (const [mid, { dims, total }] of scoreByManager.entries()) {
+        insertScore.run(submissionId, mid, total, dims.d1, dims.d2, dims.d3, dims.d4);
       }
     });
   } catch (err) {
@@ -362,7 +412,7 @@ app.post('/api/admin/managers/:id/active', requireAdmin, (req, res) => {
 app.get('/api/admin/submissions', requireAdmin, (req, res) => {
   const subs = db.prepare('SELECT * FROM submissions ORDER BY id DESC').all();
   const scoreStmt = db.prepare(
-    `SELECT s.manager_id, s.score, m.name AS manager_name
+    `SELECT s.manager_id, s.score, s.d1, s.d2, s.d3, s.d4, m.name AS manager_name
        FROM scores s JOIN managers m ON m.id = s.manager_id
       WHERE s.submission_id = ?`
   );
@@ -390,19 +440,25 @@ function computeSummary(group) {
   const rows = managers.map((m) => {
     const agg = db
       .prepare(
-        `SELECT COUNT(*) AS n, AVG(s.score) AS avg, MAX(s.score) AS max, MIN(s.score) AS min
+        `SELECT COUNT(*) AS n, AVG(s.score) AS avg, MAX(s.score) AS max, MIN(s.score) AS min,
+                AVG(s.d1) AS avg1, AVG(s.d2) AS avg2, AVG(s.d3) AS avg3, AVG(s.d4) AS avg4
            FROM scores s
            JOIN submissions sub ON sub.id = s.submission_id
           WHERE s.manager_id = ? AND sub.voided_at IS NULL`
       )
       .get(m.id);
+    const round2 = (v) => (v == null ? 0 : Number(Number(v).toFixed(2)));
     return {
       managerId: m.id,
       manager: m.name,
       count: agg.n || 0,
-      avg: agg.n ? Number(agg.avg.toFixed(2)) : 0,
+      avg: agg.n ? round2(agg.avg) : 0,
       max: agg.n ? agg.max : 0,
       min: agg.n ? agg.min : 0,
+      d1: agg.n ? round2(agg.avg1) : 0,
+      d2: agg.n ? round2(agg.avg2) : 0,
+      d3: agg.n ? round2(agg.avg3) : 0,
+      d4: agg.n ? round2(agg.avg4) : 0,
     };
   });
   // 按平均分降序排名
@@ -447,7 +503,9 @@ app.post('/api/admin/clear', requireAdmin, (req, res) => {
 // ---- Excel 导出 ------------------------------------------------------------
 
 app.get('/api/admin/export', requireAdmin, async (req, res) => {
-  const scoreStmt = db.prepare('SELECT manager_id, score FROM scores WHERE submission_id = ?');
+  const scoreStmt = db.prepare(
+    'SELECT manager_id, score, d1, d2, d3, d4 FROM scores WHERE submission_id = ?'
+  );
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = '项目民主测评系统';
@@ -464,6 +522,7 @@ app.get('/api/admin/export', requireAdmin, async (req, res) => {
       .all(key);
 
     // --- 明细 ---
+    // 每位测评对象展开为「总分 + 4 个维度」共 5 列
     const detail = workbook.addWorksheet(`${label}-明细`);
     const detailColumns = [
       { header: '提交ID', key: 'id', width: 10 },
@@ -472,12 +531,17 @@ app.get('/api/admin/export', requireAdmin, async (req, res) => {
       { header: '提交时间', key: 'createdAt', width: 22 },
       { header: '作废时间', key: 'voidedAt', width: 22 },
     ];
-    managers.forEach((m) => detailColumns.push({ header: m.name, key: `m_${m.id}`, width: 18 }));
+    managers.forEach((m) => {
+      detailColumns.push({ header: `${m.name}-总分`, key: `m_${m.id}_total`, width: 14 });
+      EVAL_DIMENSIONS.forEach((d) => {
+        detailColumns.push({ header: `${m.name}-${d.name}`, key: `m_${m.id}_${d.key}`, width: 14 });
+      });
+    });
     detail.columns = detailColumns;
 
     subs.forEach((sub) => {
       const scores = scoreStmt.all(sub.id);
-      const scoreMap = new Map(scores.map((s) => [s.manager_id, s.score]));
+      const scoreMap = new Map(scores.map((s) => [s.manager_id, s]));
       const row = {
         id: sub.id,
         name: sub.name,
@@ -486,7 +550,11 @@ app.get('/api/admin/export', requireAdmin, async (req, res) => {
         voidedAt: sub.voided_at ? formatDateTime(sub.voided_at) : '',
       };
       managers.forEach((m) => {
-        row[`m_${m.id}`] = scoreMap.has(m.id) ? scoreMap.get(m.id) : '';
+        const s = scoreMap.get(m.id);
+        row[`m_${m.id}_total`] = s ? s.score : '';
+        EVAL_DIMENSIONS.forEach((d) => {
+          row[`m_${m.id}_${d.key}`] = s && s[d.key] != null ? s[d.key] : '';
+        });
       });
       detail.addRow(row);
     });
@@ -497,7 +565,8 @@ app.get('/api/admin/export', requireAdmin, async (req, res) => {
     summarySheet.columns = [
       { header: '排名', key: 'rank', width: 8 },
       { header: '测评对象', key: 'manager', width: 24 },
-      { header: '平均分', key: 'avg', width: 12 },
+      { header: '平均总分', key: 'avg', width: 12 },
+      ...EVAL_DIMENSIONS.map((d) => ({ header: `${d.name}均分`, key: d.key, width: 14 })),
       { header: '最高分', key: 'max', width: 12 },
       { header: '最低分', key: 'min', width: 12 },
       { header: '有效人数', key: 'count', width: 12 },
@@ -507,6 +576,10 @@ app.get('/api/admin/export', requireAdmin, async (req, res) => {
         rank: r.rank,
         manager: r.manager,
         avg: r.avg,
+        d1: r.d1,
+        d2: r.d2,
+        d3: r.d3,
+        d4: r.d4,
         max: r.max,
         min: r.min,
         count: r.count,

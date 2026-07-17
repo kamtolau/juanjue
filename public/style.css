@@ -120,6 +120,53 @@ body {
   font-weight: 600;
 }
 
+/* 评分维度说明 */
+.dimension-list {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: dim;
+}
+
+.dimension-item {
+  position: relative;
+  background: #fff;
+  border: 1px solid #f3cccc;
+  border-radius: 8px;
+  padding: 10px 12px 10px 40px;
+  margin-bottom: 8px;
+  counter-increment: dim;
+}
+
+.dimension-item::before {
+  content: counter(dim);
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 22px;
+  text-align: center;
+}
+
+.dimension-name {
+  color: var(--primary-dark);
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.dimension-desc {
+  color: var(--text-weak);
+  font-size: 13px;
+  line-height: 1.6;
+  margin-top: 2px;
+}
+
 /* 输入 */
 .text-input {
   width: 100%;
@@ -262,6 +309,67 @@ body {
 }
 
 .manager-item.duplicate .manager-score {
+  color: var(--warn);
+}
+
+/* 总分显示 */
+.manager-total {
+  color: var(--primary);
+}
+
+.manager-item.total-dup {
+  border-color: var(--warn);
+  background: #fff8ef;
+}
+
+.manager-item.total-dup .manager-total {
+  color: var(--warn);
+}
+
+/* 维度分行 */
+.dims-wrap {
+  margin-top: 4px;
+}
+
+.dim-row {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  background: #fafbfc;
+}
+
+.dim-row:last-child {
+  margin-bottom: 0;
+}
+
+.dim-row.duplicate {
+  border-color: var(--warn);
+  background: #fff8ef;
+}
+
+.dim-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.dim-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dim-score {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--primary);
+  min-width: 84px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.dim-row.duplicate .dim-score {
   color: var(--warn);
 }
 
