@@ -364,6 +364,29 @@
       index.className = 'm-index';
       index.textContent = idx;
 
+      // 移至另一问卷
+      const otherGroup = m.group_key === 'leader' ? 'manager' : 'leader';
+      const moveBtn = document.createElement('button');
+      moveBtn.className = 'btn btn-sm btn-outline';
+      moveBtn.textContent = '移至' + GROUP_LABELS[otherGroup];
+      moveBtn.addEventListener('click', async () => {
+        const ok = await confirmDialog(
+          `确定把「${m.name}」移到「${GROUP_LABELS[otherGroup]}」问卷吗？`
+        );
+        if (!ok) return;
+        const res = await api('/api/admin/managers/' + m.id + '/group', {
+          method: 'POST',
+          body: JSON.stringify({ group: otherGroup }),
+        });
+        if (res.ok) {
+          toast('已移动');
+          loadManagers();
+          loadOverview();
+        } else {
+          toast(res.error || '移动失败');
+        }
+      });
+
       const toggleBtn = document.createElement('button');
       toggleBtn.className = 'btn btn-sm ' + (m.active ? 'btn-ghost' : 'btn-outline');
       toggleBtn.textContent = m.active ? '停用' : '启用';
@@ -387,6 +410,7 @@
         tag.textContent = '已停用';
         row.appendChild(tag);
       }
+      row.appendChild(moveBtn);
       row.appendChild(toggleBtn);
       list.appendChild(row);
     });

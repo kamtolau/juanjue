@@ -406,6 +406,20 @@ app.post('/api/admin/managers/:id/active', requireAdmin, (req, res) => {
   res.json({ ok: true, active });
 });
 
+/** 修改测评对象所属问卷（leader / manager） */
+app.post('/api/admin/managers/:id/group', requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  const group = normalizeGroup(req.body && req.body.group);
+  if (!group) {
+    return res.status(400).json({ ok: false, error: '无效的问卷类别' });
+  }
+  const info = db.prepare('UPDATE managers SET group_key = ? WHERE id = ?').run(group, id);
+  if (info.changes === 0) {
+    return res.status(404).json({ ok: false, error: '测评对象不存在' });
+  }
+  res.json({ ok: true, group });
+});
+
 // ---- 提交明细 / 汇总 -------------------------------------------------------
 
 /** 提交明细列表 */
